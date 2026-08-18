@@ -1,10 +1,11 @@
 """
-Multi-agent research pipeline: Planner -> Retrieval -> Evidence -> Critic ->
-Synthesis -> Citation Validator -> Quality Controller.
+Research pipeline: planner -> retrieval -> evidence -> critic -> synthesis ->
+citation validator -> quality control.
 
-Each stage is a plain function returning structured, inspectable output so the
-full reasoning trace can be shown to the end user (transparency / auditability
-is a core requirement of the platform).
+Every stage is a plain function returning a dict rather than a class holding
+state, so the whole trace can be serialised straight into the API response and
+inspected. Debugging a bad answer means reading the stage outputs, not
+attaching a debugger.
 """
 from __future__ import annotations
 
@@ -35,11 +36,12 @@ class ResearchResult:
 
 
 def _detect_contradictions(evidence: List[dict]) -> List[dict]:
-    """Heuristic contradiction detector: flags evidence pairs covering similar
-    ground where one asserts a negation the other does not.
+    """Flag evidence pairs that cover the same ground but disagree on polarity.
 
-    This is intentionally conservative (few false positives) rather than
-    exhaustive -- it is a signal for human review, not an autonomous verdict.
+    Requires 6+ shared terms before considering a pair at all, then checks
+    whether exactly one side contains a negation. Tuned to stay quiet: a critic
+    that cries wolf gets ignored, which is worse than not having one. Output is
+    a prompt for human review, not a verdict.
     """
     contradictions = []
     for i in range(len(evidence)):

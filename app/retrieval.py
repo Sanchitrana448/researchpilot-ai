@@ -1,10 +1,10 @@
 """
-Document ingestion, chunking, and hybrid retrieval.
+Ingestion, chunking and retrieval.
 
-Vectorization uses TF-IDF (scikit-learn) so the system runs fully offline
-with zero external dependencies or API keys. The retriever interface is
-provider-agnostic: swapping in dense embeddings (OpenAI / sentence-transformers)
-later only requires changing `Index.fit` / `Index.query`.
+TF-IDF rather than embeddings, so there's no API dependency in the retrieval
+path. The cost is that matching is lexical and paraphrases get missed. Moving
+to dense vectors means reimplementing _build and search; nothing outside this
+module touches the vectorizer.
 """
 from __future__ import annotations
 
@@ -52,10 +52,11 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 80) -> List[str]
 
 
 def score_source_quality(source: str) -> float:
-    """Very light heuristic source-quality scorer.
+    """Crude source-quality prior based on the source name.
 
-    Rewards named/structured sources over anonymous ones. Swappable for a
-    real domain-authority / recency model in production.
+    Favours named and structured sources over anonymous pastes. This is a
+    hardcoded domain list, not a model, and it should be replaced by a real
+    domain-authority or recency signal before anyone relies on it.
     """
     s = source.lower()
     if s.startswith("http"):
@@ -83,7 +84,9 @@ class Index:
         seen_hashes = {hash(c.text) for c in self.chunks}
         for i, ctext in enumerate(chunk_text(text)):
             h = hash(ctext)
-            if h in seen_hashes:  # duplicate-chunk detection
+            # Same passage in two documents is one piece of evidence, not two.
+            # Indexing it twice would let it corroborate itself downstream.
+            if h in seen_hashes:
                 continue
             seen_hashes.add(h)
             self.chunks.append(Chunk(id=f"{doc_id}-{i}", doc_id=doc_id, source=source, text=ctext))
@@ -104,7 +107,9 @@ class Index:
             return []
         q_vec = self._vectorizer.transform([query])
         sims = cosine_similarity(q_vec, self._matrix)[0]
-        ranked_idx = np.argsort(-sims)[: top_k * 3]  # over-fetch, then re-rank
+        # Over-fetch on similarity alone, then re-rank the wider pool with the
+        # quality prior. Re-ranking only the final k would have nothing to move.
+        ranked_idx = np.argsort(-sims)[: top_k * 3]
         results = []
         for idx in ranked_idx:
             sim = float(sims[idx])

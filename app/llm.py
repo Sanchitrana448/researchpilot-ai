@@ -1,13 +1,13 @@
 """
-Pluggable LLM provider.
+LLM provider with an offline fallback.
 
-ResearchPilot AI runs fully offline out of the box (extractive planning +
-extractive synthesis, no external calls, no API key required) so recruiters
-and reviewers can run the demo with zero setup.
+With no OPENAI_API_KEY set, planning and synthesis both run extractively: no
+network calls, and synthesis can only emit text that came out of the index.
+That makes the offline path incapable of fabricating a citation, which is why
+it exists as a real mode rather than a stub.
 
-If OPENAI_API_KEY is set, the system automatically upgrades to real LLM-backed
-planning and synthesis via the OpenAI Chat Completions API, with no code
-changes required.
+With a key set, both stages route to Chat Completions instead. Same interface,
+so nothing downstream changes.
 """
 from __future__ import annotations
 
@@ -61,8 +61,8 @@ def decompose_question(question: str, n: int = 4) -> List[str]:
         except Exception:
             pass
 
-    # Offline heuristic planner: split on conjunctions / punctuation and
-    # generate standard analytical angles as a deterministic fallback.
+    # Offline planner: split on conjunctions and punctuation, then bolt on a
+    # few standard analytical angles. Deterministic, so tests can assert on it.
     parts = re.split(r"\band\b|,|;|\?", question, flags=re.IGNORECASE)
     parts = [p.strip() for p in parts if p.strip()]
     angles = [
@@ -101,9 +101,9 @@ def synthesize_report(question: str, evidence_blocks: List[dict]) -> str:
         except Exception:
             pass
 
-    # Offline extractive synthesis: stitch together the top-ranked evidence
-    # sentences with explicit citations. Fully deterministic, zero hallucination
-    # risk, and transparent about what is/isn't covered.
+    # Offline synthesis: stitch the top-ranked passages together with their
+    # citation ids. Every sentence here came from the corpus, so there is
+    # nothing for the model to invent.
     if not evidence_blocks:
         return (
             "Insufficient evidence was retrieved to answer this question. "
