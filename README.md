@@ -1,1 +1,0 @@
-# researchpilot-ai
