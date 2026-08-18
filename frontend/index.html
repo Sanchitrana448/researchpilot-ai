@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ResearchPilot AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{--bg:#0b0f19;--panel:#121826;--border:#243044;--text:#e6ebf5;--muted:#8b98b0;--accent:#5b8cff;--good:#3ddc97;--warn:#f5a623;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:24px 32px;border-bottom:1px solid var(--border);}
+  header h1{margin:0;font-size:20px;} header p{margin:4px 0 0;color:var(--muted);font-size:13px;}
+  .wrap{max-width:960px;margin:0 auto;padding:24px 32px;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px;}
+  .panel h2{margin:0 0 12px;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  textarea,input[type=text]{width:100%;background:#0d1320;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:14px;}
+  textarea{min-height:90px;resize:vertical;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:10px;}
+  button:hover{opacity:.9} button:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row > *{flex:1;min-width:220px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#1b2436;color:var(--muted);margin-right:6px}
+  .evidence{border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;background:#0d1320;border-radius:6px;font-size:13px;color:var(--muted)}
+  .answer{white-space:pre-wrap;line-height:1.6;font-size:14px}
+  .metrics{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+  .metric{background:#0d1320;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;min-width:120px}
+  .metric b{display:block;font-size:16px;color:var(--good)}
+  #status{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔎 ResearchPilot AI</h1>
+  <p>Autonomous multi-agent research engine — retrieves, cross-checks and cites evidence before answering.</p>
+</header>
+<div class="wrap">
+
+  <div class="panel">
+    <h2>1. Add source material</h2>
+    <textarea id="docText" placeholder="Paste source text here (article, report, notes)..."></textarea>
+    <div class="row">
+      <input type="text" id="docSource" placeholder="Source name (e.g. company-report.pdf)" />
+      <button onclick="ingestText()">Ingest text</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="file" id="fileInput" />
+      <button onclick="ingestFile()">Ingest file</button>
+    </div>
+    <p id="status">No documents ingested yet.</p>
+  </div>
+
+  <div class="panel">
+    <h2>2. Ask a research question</h2>
+    <input type="text" id="question" placeholder="e.g. What are the main risks in adopting RAG for enterprise search?" />
+    <button onclick="ask()" id="askBtn">Run research</button>
+  </div>
+
+  <div class="panel" id="resultPanel" style="display:none">
+    <h2>Result</h2>
+    <div id="subqs"></div>
+    <div class="answer" id="answer"></div>
+    <div id="contradictions"></div>
+    <div class="metrics" id="metrics"></div>
+    <h3 style="color:var(--muted);font-size:13px;margin-top:16px">Evidence</h3>
+    <div id="evidence"></div>
+  </div>
+</div>
+
+<script>
+const API = "";
+async function ingestText(){
+  const text = document.getElementById('docText').value;
+  const source = document.getElementById('docSource').value || 'user-provided-text';
+  if(!text.trim()) return;
+  const res = await fetch(API+'/ingest/text', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, source})});
+  const data = await res.json();
+  document.getElementById('status').innerText = `Corpus: ${data.documents} document(s), ${data.chunks} chunk(s).`;
+  document.getElementById('docText').value='';
+}
+async function ingestFile(){
+  const f = document.getElementById('fileInput').files[0];
+  if(!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  const res = await fetch(API+'/ingest/file', {method:'POST', body: fd});
+  const data = await res.json();
+  document.getElementById('status').innerText = `Corpus: ${data.documents} document(s), ${data.chunks} chunk(s).`;
+}
+async function ask(){
+  const question = document.getElementById('question').value;
+  if(!question.trim()) return;
+  const btn = document.getElementById('askBtn'); btn.disabled=true; btn.innerText='Researching...';
+  try{
+    const res = await fetch(API+'/research', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question})});
+    const data = await res.json();
+    if(!res.ok){ alert(data.detail || 'Error'); return; }
+    render(data);
+  } finally { btn.disabled=false; btn.innerText='Run research'; }
+}
+function render(data){
+  document.getElementById('resultPanel').style.display='block';
+  document.getElementById('subqs').innerHTML = '<b>Sub-questions:</b> ' + data.sub_questions.map(q=>`<span class="badge">${q}</span>`).join(' ');
+  document.getElementById('answer').innerText = data.answer;
+  const m = data.metrics;
+  document.getElementById('metrics').innerHTML = Object.entries(m).map(([k,v])=>`<div class="metric"><b>${v}</b>${k}</div>`).join('');
+  document.getElementById('evidence').innerHTML = data.evidence.map(e=>`<div class="evidence"><b>[${e.id}]</b> ${e.text.slice(0,300)}${e.text.length>300?'...':''}<br><i>source: ${e.source} · score: ${e.combined_score}</i></div>`).join('') || '<i>No evidence retrieved.</i>';
+  const c = data.contradictions;
+  document.getElementById('contradictions').innerHTML = c.length ? `<p style="color:var(--warn)">⚠ ${c.length} potential contradiction(s) detected — see evidence for ${c.map(x=>x.evidence_a+'/'+x.evidence_b).join(', ')}</p>` : '';
+}
+</script>
+</body>
+</html>
