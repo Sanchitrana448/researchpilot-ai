@@ -1,0 +1,32 @@
+name: keepalive
+
+# Render's free tier puts a service to sleep after ~15 minutes idle and the
+# cold start runs about 50 seconds, which is long enough that anyone following
+# a link assumes the thing is broken.
+#
+# Weekday daytime only, deliberately. Free instance hours are capped per
+# account rather than per service, so keeping three services warm around the
+# clock would burn the monthly allowance in about ten days. Outside these
+# hours the first request pays the cold start.
+
+on:
+  schedule:
+    - cron: "*/10 9-16 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake and check health
+        env:
+          URL: https://researchpilot-ai-yw7y.onrender.com/health
+        run: |
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "$URL" || echo 000)
+            echo "attempt $attempt -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 20
+          done
+          echo "no 200 after 3 attempts"
+          exit 1
