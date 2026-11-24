@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from . import llm
 from .agents import ResearchResult, run_research
 from .retrieval import Index
+from .sample_data import SAMPLE_DOCS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("researchpilot")
@@ -76,6 +77,14 @@ async def ingest_file(file: UploadFile = File(...)):
 
     doc = INDEX.add_document(text, file.filename)
     return {"doc_id": doc.id, "source": doc.source, "quality_score": doc.quality_score, **INDEX.stats()}
+
+
+@app.post("/sample")
+def load_sample():
+    """Ingest the built-in demo corpus. Duplicate chunks are dropped, so it is safe to call repeatedly."""
+    for d in SAMPLE_DOCS:
+        INDEX.add_document(d["text"], d["source"])
+    return INDEX.stats()
 
 
 @app.get("/corpus/stats")

@@ -1,9 +1,11 @@
 # ResearchPilot AI
 
-[![tests](https://github.com/Sanchitrana448/researchpilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Sanchitrana448/researchpilot-ai/actions/workflows/ci.yml)
+[![tests](https://github.com/Sanchitrana448/researchpilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Sanchitrana448/researchpilot-ai/actions/workflows/ci.yml) [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 
 Live: https://researchpilot-ai-yw7y.onrender.com  
 *(free tier, so it may take ~50s to wake outside weekday daytime)*
+
+**Try it in one click:** open the live demo and press "Load sample corpus and run an example".
 
 Ask a research question against a set of documents and get back an answer where every claim points to a specific passage. If the evidence is thin or the sources disagree, it says so instead of papering over it.
 
@@ -52,6 +54,9 @@ docker run -p 8000:8000 researchpilot
 | `POST` | `/ingest/file` | Upload a `.pdf`/`.txt`/`.md` |
 | `POST` | `/research` | Run the pipeline on a question |
 | `GET` | `/research/{id}` | Fetch a past result |
+| `GET` | `/research` | List past results |
+| `GET` | `/corpus/stats` | Document and chunk counts |
+| `POST` | `/sample` | Load the built-in demo corpus (idempotent) |
 | `GET` | `/health` | Liveness and corpus stats |
 
 Swagger docs at `/docs`.
@@ -70,14 +75,23 @@ Two things in `retrieval.py` that aren't obvious from the endpoint list:
 pytest tests/ -v
 ```
 
-Five tests: chunk windowing and overlap, index add/search, duplicate deduplication, the full offline pipeline end to end, and the zero-document case (which should return no evidence and refuse to answer, not hallucinate).
+Eight tests: chunk windowing and overlap, index add/search, duplicate deduplication, the full offline pipeline end to end, the zero-document case (which should return no evidence and refuse to answer, not hallucinate), the sample endpoint being idempotent, every eval question retrieving its expected source with zero invalid citations, and the contradiction critic ignoring stopword-only overlap.
+
+## Evaluation
+
+```
+python eval/run_eval.py
+```
+
+Runs 8 fixed questions against a 4-document sample corpus in offline mode (no randomness) and writes [RESULTS.md](RESULTS.md): retrieval hit rate, invalid citations, citation coverage. CI runs it on every push and fails if any invalid citation appears. The corpus is small and written for the demo, so read the numbers as "the pipeline works end to end", not as a benchmark.
 
 ## Limitations
 
 - TF-IDF only. No dense embeddings, so it matches on lexical overlap and will miss paraphrases. This is the first thing I'd replace.
 - The contradiction detector is a negation heuristic: it looks for evidence pairs sharing 6+ terms where one contains a negation word and the other doesn't. It catches blunt "X causes Y" vs "X does not cause Y" pairs and nothing subtler. It's deliberately tuned to be quiet rather than thorough, since a noisy critic is worse than none.
 - The index is in-memory. Restart and the corpus is gone.
-- Source-quality scoring is a hardcoded domain list, not a real model.
+- The contradiction critic once flagged pairs that only shared words like "a", "and" and "of"; the eval caught it and it now counts content words only.
+Source-quality scoring is a hardcoded domain list, not a real model.
 
 ## Stack
 

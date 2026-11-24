@@ -37,6 +37,7 @@
 
   <div class="panel">
     <h2>1. Add source material</h2>
+    <button onclick="loadSample()" id="sampleBtn" style="margin-top:0;margin-bottom:12px">Load sample corpus and run an example</button>
     <textarea id="docText" placeholder="Paste source text here (article, report, notes)..."></textarea>
     <div class="row">
       <input type="text" id="docSource" placeholder="Source name (e.g. company-report.pdf)" />
@@ -68,6 +69,18 @@
 
 <script>
 const API = "";
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SAMPLE_QUESTION = "What are the main risks of adopting RAG for enterprise search?";
+async function loadSample(){
+  const btn = document.getElementById('sampleBtn'); btn.disabled = true; btn.innerText = 'Loading sample...';
+  try{
+    const res = await fetch(API+'/sample', {method:'POST'});
+    const data = await res.json();
+    document.getElementById('status').innerText = `Corpus: ${data.documents} document(s), ${data.chunks} chunk(s).`;
+    document.getElementById('question').value = SAMPLE_QUESTION;
+    await ask();
+  } finally { btn.disabled = false; btn.innerText = 'Load sample corpus and run an example'; }
+}
 async function ingestText(){
   const text = document.getElementById('docText').value;
   const source = document.getElementById('docSource').value || 'user-provided-text';
@@ -98,11 +111,11 @@ async function ask(){
 }
 function render(data){
   document.getElementById('resultPanel').style.display='block';
-  document.getElementById('subqs').innerHTML = '<b>Sub-questions:</b> ' + data.sub_questions.map(q=>`<span class="badge">${q}</span>`).join(' ');
+  document.getElementById('subqs').innerHTML = '<b>Sub-questions:</b> ' + data.sub_questions.map(q=>`<span class="badge">${esc(q)}</span>`).join(' ');
   document.getElementById('answer').innerText = data.answer;
   const m = data.metrics;
   document.getElementById('metrics').innerHTML = Object.entries(m).map(([k,v])=>`<div class="metric"><b>${v}</b>${k}</div>`).join('');
-  document.getElementById('evidence').innerHTML = data.evidence.map(e=>`<div class="evidence"><b>[${e.id}]</b> ${e.text.slice(0,300)}${e.text.length>300?'...':''}<br><i>source: ${e.source} · score: ${e.combined_score}</i></div>`).join('') || '<i>No evidence retrieved.</i>';
+  document.getElementById('evidence').innerHTML = data.evidence.map(e=>`<div class="evidence"><b>[${esc(e.id)}]</b> ${esc(e.text.slice(0,300))}${e.text.length>300?'...':''}<br><i>source: ${esc(e.source)} · score: ${e.combined_score}</i></div>`).join('') || '<i>No evidence retrieved.</i>';
   const c = data.contradictions;
   document.getElementById('contradictions').innerHTML = c.length ? `<p style="color:var(--warn)">⚠ ${c.length} potential contradiction(s) detected — see evidence for ${c.map(x=>x.evidence_a+'/'+x.evidence_b).join(', ')}</p>` : '';
 }

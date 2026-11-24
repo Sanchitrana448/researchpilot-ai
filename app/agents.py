@@ -35,6 +35,14 @@ class ResearchResult:
     created_at: float = field(default_factory=time.time)
 
 
+_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "of", "in", "on", "at", "to", "for", "with", "by",
+    "from", "as", "is", "are", "was", "were", "be", "been", "it", "its", "that", "this",
+    "these", "those", "than", "then", "so", "if", "when", "which", "who", "what", "can",
+    "will", "would", "should", "could", "may", "has", "have", "had", "into", "over", "per",
+}
+
+
 def _detect_contradictions(evidence: List[dict]) -> List[dict]:
     """Flag evidence pairs that cover the same ground but disagree on polarity.
 
@@ -49,7 +57,9 @@ def _detect_contradictions(evidence: List[dict]) -> List[dict]:
             a, b = evidence[i], evidence[j]
             a_words = set(re.findall(r"[a-z']+", a["text"].lower()))
             b_words = set(re.findall(r"[a-z']+", b["text"].lower()))
-            overlap = a_words & b_words
+            # Count only content words: function words like "a", "and", "of"
+            # are shared by almost any two English passages.
+            overlap = (a_words & b_words) - _STOPWORDS - NEGATION_WORDS
             if len(overlap) < 6:
                 continue
             a_neg = bool(a_words & NEGATION_WORDS)

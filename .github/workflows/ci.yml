@@ -17,3 +17,4 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: pytest tests/ -v
+      - run: python eval/run_eval.py

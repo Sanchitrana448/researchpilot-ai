@@ -1,1 +1,0 @@
-# ResearchPilot AI app package
