@@ -44,7 +44,7 @@ class ResearchRequest(BaseModel):
     top_k: int = 6
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "llm_mode": "live" if llm.llm_available() else "offline_extractive", **INDEX.stats()}
 
