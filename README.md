@@ -11,6 +11,11 @@ Ask a research question against a set of documents and get back an answer where 
 
 Works with no API key at all. Without one it falls back to extractive synthesis, which stitches together retrieved passages with citations rather than generating prose. Set `OPENAI_API_KEY` and it switches to LLM synthesis on the next request, no code change.
 
+## Screenshots
+
+![ResearchPilot result: sub-questions, cited answer, 0 invalid citations and the retrieved evidence](docs/research-result.png)
+*Offline extractive mode on the built-in sample corpus: every `[Sx]` marker maps to retrieved evidence, so `invalid_citations` is 0.*
+
 ## The part I actually care about
 
 Most RAG demos will happily cite `[S3]` when there is no S3. The synthesis step here is untrusted by design: after the answer comes back, a validator pulls every `[Sx]` marker out of the text and checks it against the evidence that was actually retrieved. Anything that doesn't match gets flagged in `uncertainty_notes` and counted in `invalid_citations`.
