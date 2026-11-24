@@ -133,7 +133,7 @@
 const API = "";
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const SAMPLE_QUESTION = "What are the main risks of adopting RAG for enterprise search?";
-const LABELS = {sub_questions:'sub-questions',evidence_retrieved:'evidence retrieved',contradictions_found:'contradictions',citations_used:'citations used',citation_coverage:'citation coverage',invalid_citations:'invalid citations',llm_mode:'mode',latency_seconds:'seconds'};
+const LABELS = {sub_questions:'sub-questions',evidence_retrieved:'evidence retrieved',contradictions_found:'contradictions',citations_used:'citations used',citation_coverage:'citation coverage',invalid_citations:'invalid citations',llm_mode:'mode',retrieval_mode:'retrieval',latency_seconds:'seconds'};
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ICON_OK = '<svg width="30" height="30" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="12" fill="currentColor" opacity=".18"/><path d="M7.5 13.4l3.9 3.9 7.2-8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_BAD = '<svg width="30" height="30" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="12" fill="currentColor" opacity=".18"/><path d="M8.5 8.5l9 9M17.5 8.5l-9 9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';

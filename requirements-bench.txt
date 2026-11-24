@@ -1,0 +1,4 @@
+# Extra packages for the public benchmark (python eval/beir_scifact.py)
+-r requirements.txt
+rank-bm25==0.2.2
+pyarrow==18.1.0

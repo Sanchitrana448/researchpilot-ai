@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,15 +13,25 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import llm
+from . import embeddings, llm, reranker
 from .agents import ResearchResult, run_research
-from .retrieval import Index
+from .retrieval import Index, RerankUnavailable
 from .sample_data import SAMPLE_DOCS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("researchpilot")
 
+
+@asynccontextmanager
+async def lifespan(_app):
+    # Load both ONNX models before the first request instead of during it.
+    embeddings.warm_up()
+    reranker.warm_up()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="ResearchPilot AI",
     description="Autonomous AI research & decision engine — agentic RAG with citation-grounded synthesis.",
     version="1.0.0",
@@ -42,6 +54,8 @@ class IngestTextRequest(BaseModel):
 class ResearchRequest(BaseModel):
     question: str
     top_k: int = 6
+    # Cross-encoder re-ranking for this request; omit for the server default (off).
+    rerank: Optional[bool] = None
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
@@ -98,7 +112,10 @@ def research(req: ResearchRequest):
         raise HTTPException(400, "question must not be empty")
     if INDEX.stats()["documents"] == 0:
         raise HTTPException(400, "No documents ingested yet. POST /ingest/text or /ingest/file first.")
-    result = run_research(INDEX, req.question, top_k=req.top_k)
+    try:
+        result = run_research(INDEX, req.question, top_k=req.top_k, rerank=req.rerank)
+    except RerankUnavailable as e:
+        raise HTTPException(400, str(e))
     RESULTS[result.id] = result
     return asdict(result)
 

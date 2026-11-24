@@ -1,21 +1,46 @@
 """
-Ingestion, chunking and retrieval.
+Ingestion, chunking and two-stage retrieval.
 
-TF-IDF rather than embeddings, so there's no API dependency in the retrieval
-path. The cost is that matching is lexical and paraphrases get missed. Moving
-to dense vectors means reimplementing _build and search; nothing outside this
-module touches the vectorizer.
+Stage 1, vector search: every chunk is embedded once at ingest
+(bge-small-en-v1.5, app/embeddings.py) and stored in a Qdrant collection.
+A question is embedded the same way and the nearest chunks by cosine
+similarity become candidates.
+
+Stage 2, optional re-ranking: a cross-encoder (app/reranker.py) reads the
+question together with each candidate and re-orders them. Off by default,
+because it did not improve results on the public benchmark.
+
+Refusal: candidates below MIN_SIMILARITY are dropped in stage 1, so an
+off-topic question retrieves nothing and the pipeline refuses to answer
+instead of citing the least-bad passage. The re-ranker is not used for this:
+it scores reworded but correct matches almost as low as off-topic ones.
+
+Measured on the public BEIR SciFact benchmark in eval/beir_scifact.py.
 """
 from __future__ import annotations
 
-import re
+import logging
+import math
+import os
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+
+from . import embeddings, reranker
+
+logger = logging.getLogger("researchpilot.retrieval")
+
+CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "30"))
+# Cosine floor for "is this on topic at all". bge-small scores unrelated text
+# around 0.35-0.47 and genuine matches from about 0.55 up in
+# eval/benchmark_data.py, so 0.50 sits in the gap. Chosen on that small set.
+MIN_SIMILARITY = float(os.getenv("MIN_SIMILARITY", "0.50"))
+# Keep only passages within this distance of the best match. Topically close
+# documents all clear the absolute floor, so without this a question about
+# one subtopic pulls in every document from the same field as "evidence".
+RELATIVE_MARGIN = float(os.getenv("RELATIVE_MARGIN", "0.15"))
 
 
 @dataclass
@@ -34,8 +59,12 @@ class Document:
     quality_score: float = 1.0
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 80) -> List[str]:
-    """Sliding-window word chunking with overlap."""
+def chunk_text(text: str, chunk_size: int = 200, overlap: int = 40) -> List[str]:
+    """Sliding-window word chunking with overlap.
+
+    200 words is roughly 260 tokens, inside the 512-token limit of both models,
+    so nothing is silently truncated before it is embedded.
+    """
     words = text.split()
     if not words:
         return []
@@ -68,20 +97,66 @@ def score_source_quality(source: str) -> float:
     return 0.6
 
 
+class VectorStore:
+    """Cosine vector search over chunk embeddings.
+
+    Uses Qdrant's in-process (":memory:") mode: the same client API as a
+    Qdrant server, so moving to a hosted collection is a constructor change.
+    """
+
+    COLLECTION = "chunks"
+
+    def __init__(self, dim: int = embeddings.DIM):
+        from qdrant_client import QdrantClient, models
+
+        self._models = models
+        self._client = QdrantClient(":memory:")
+        self._client.create_collection(
+            self.COLLECTION,
+            vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+        )
+        self.backend = "qdrant (in-memory)"
+
+    def add(self, start_id: int, vectors: np.ndarray) -> None:
+        if len(vectors) == 0:
+            return
+        self._client.upload_collection(
+            self.COLLECTION,
+            vectors=vectors,
+            ids=list(range(start_id, start_id + len(vectors))),
+            batch_size=256,
+        )
+
+    def search(self, vector: np.ndarray, limit: int, min_score: float) -> List[tuple]:
+        """Return [(chunk_position, cosine_similarity)], best first."""
+        hits = self._client.query_points(
+            self.COLLECTION, query=vector.tolist(), limit=limit, score_threshold=min_score
+        ).points
+        return [(int(h.id), float(h.score)) for h in hits]
+
+
+class RerankUnavailable(RuntimeError):
+    pass
+
+
+def _sigmoid(x: float) -> float:
+    return 1.0 / (1.0 + math.exp(-x))
+
+
 class Index:
-    """In-memory hybrid (TF-IDF + duplicate-aware) retrieval index."""
+    """In-memory two-stage retrieval index."""
 
     def __init__(self):
         self.documents: dict[str, Document] = {}
         self.chunks: List[Chunk] = []
-        self._vectorizer: Optional[TfidfVectorizer] = None
-        self._matrix = None
+        self._vectors = VectorStore()
 
     def add_document(self, text: str, source: str) -> Document:
         doc_id = str(uuid.uuid4())[:8]
         doc = Document(id=doc_id, source=source, text=text, quality_score=score_source_quality(source))
         self.documents[doc_id] = doc
         seen_hashes = {hash(c.text) for c in self.chunks}
+        first_new = len(self.chunks)
         for i, ctext in enumerate(chunk_text(text)):
             h = hash(ctext)
             # Same passage in two documents is one piece of evidence, not two.
@@ -90,34 +165,38 @@ class Index:
                 continue
             seen_hashes.add(h)
             self.chunks.append(Chunk(id=f"{doc_id}-{i}", doc_id=doc_id, source=source, text=ctext))
-        self._build()
+        # Only new chunks are embedded; existing vectors stay valid.
+        new = self.chunks[first_new:]
+        self._vectors.add(first_new, embeddings.embed_documents([c.text for c in new]))
         return doc
 
-    def _build(self):
+    def search(self, query: str, top_k: int = 6, rerank: Optional[bool] = None) -> List[dict]:
+        """Return the top_k chunks with similarity, re-rank score and final score."""
         if not self.chunks:
-            self._vectorizer = None
-            self._matrix = None
-            return
-        self._vectorizer = TfidfVectorizer(stop_words="english", max_features=20000)
-        self._matrix = self._vectorizer.fit_transform([c.text for c in self.chunks])
-
-    def search(self, query: str, top_k: int = 6) -> List[dict]:
-        """Return ranked chunks with similarity + source-quality-adjusted score."""
-        if not self.chunks or self._vectorizer is None:
             return []
-        q_vec = self._vectorizer.transform([query])
-        sims = cosine_similarity(q_vec, self._matrix)[0]
-        # Over-fetch on similarity alone, then re-rank the wider pool with the
-        # quality prior. Re-ranking only the final k would have nothing to move.
-        ranked_idx = np.argsort(-sims)[: top_k * 3]
+        use_rerank = (reranker.ENABLED and reranker.AVAILABLE) if rerank is None else rerank
+        if use_rerank and not reranker.AVAILABLE:
+            raise RerankUnavailable("Re-ranking is switched off on this deployment to stay within its memory limit.")
+        limit = max(CANDIDATES, top_k * 3) if use_rerank else top_k * 3
+        hits = self._vectors.search(embeddings.embed_queries([query])[0], limit, MIN_SIMILARITY)
+        if not hits:
+            return []
+        best = hits[0][1]
+        hits = [(i, sim) for i, sim in hits if sim >= best - RELATIVE_MARGIN]
+
+        rerank_scores: dict[int, float] = {}
+        if use_rerank:
+            scores = reranker.score(query, [self.chunks[i].text for i, _ in hits])
+            rerank_scores = {i: s for (i, _), s in zip(hits, scores)}
+
         results = []
-        for idx in ranked_idx:
-            sim = float(sims[idx])
-            if sim <= 0:
-                continue
+        for idx, sim in hits:
+            if use_rerank:
+                relevance = _sigmoid(rerank_scores[idx])
+            else:
+                relevance = sim
             chunk = self.chunks[idx]
             quality = self.documents[chunk.doc_id].quality_score
-            combined = 0.75 * sim + 0.25 * quality
             results.append(
                 {
                     "chunk_id": chunk.id,
@@ -125,12 +204,23 @@ class Index:
                     "source": chunk.source,
                     "text": chunk.text,
                     "similarity": round(sim, 4),
+                    "rerank_score": round(rerank_scores[idx], 3) if use_rerank else None,
                     "source_quality": quality,
-                    "combined_score": round(combined, 4),
+                    # Relevance dominates; the source prior only breaks near-ties.
+                    "combined_score": round(0.85 * relevance + 0.15 * quality, 4),
+                    "retrieval_mode": "dense+rerank" if use_rerank else "dense",
                 }
             )
         results.sort(key=lambda r: -r["combined_score"])
         return results[:top_k]
 
     def stats(self) -> dict:
-        return {"documents": len(self.documents), "chunks": len(self.chunks)}
+        return {
+            "documents": len(self.documents),
+            "chunks": len(self.chunks),
+            "embedding_model": embeddings.MODEL_NAME,
+            "vector_store": self._vectors.backend,
+            "reranker": reranker.MODEL_NAME,
+            "rerank_available": reranker.AVAILABLE,
+            "rerank_by_default": reranker.ENABLED and reranker.AVAILABLE,
+        }

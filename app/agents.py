@@ -15,7 +15,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import List
 
-from . import llm
+from . import llm, reranker
 from .retrieval import Index
 
 NEGATION_WORDS = {"not", "no", "never", "cannot", "can't", "isn't", "doesn't", "won't", "unlikely", "false"}
@@ -77,7 +77,7 @@ def _detect_contradictions(evidence: List[dict]) -> List[dict]:
     return contradictions
 
 
-def run_research(index: Index, question: str, top_k: int = 6) -> ResearchResult:
+def run_research(index: Index, question: str, top_k: int = 6, rerank: bool | None = None) -> ResearchResult:
     t0 = time.time()
 
     # 1-2. Planner: decompose into sub-questions
@@ -87,7 +87,7 @@ def run_research(index: Index, question: str, top_k: int = 6) -> ResearchResult:
     seen_chunk_ids = set()
     evidence: List[dict] = []
     for sq in sub_questions:
-        for r in index.search(sq, top_k=top_k):
+        for r in index.search(sq, top_k=top_k, rerank=rerank):
             if r["chunk_id"] in seen_chunk_ids:
                 continue
             seen_chunk_ids.add(r["chunk_id"])
@@ -140,6 +140,9 @@ def run_research(index: Index, question: str, top_k: int = 6) -> ResearchResult:
         "citation_coverage": round(len(cited_ids) / max(1, len(labeled_evidence)), 2),
         "invalid_citations": len(invalid_citations),
         "llm_mode": "live" if llm.llm_available() else "offline_extractive",
+        "retrieval_mode": "dense+rerank"
+        if ((reranker.ENABLED and reranker.AVAILABLE) if rerank is None else rerank)
+        else "dense",
         "latency_seconds": round(time.time() - t0, 3),
     }
 
