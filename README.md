@@ -13,7 +13,7 @@ Works with no API key at all. Without one it falls back to extractive synthesis,
 
 ## Screenshots
 
-![ResearchPilot result: sub-questions, cited answer, 0 invalid citations and the retrieved evidence](docs/research-result.png)
+![ResearchPilot answer with a verified-citations banner and clickable source chips](docs/research-result.png)
 *Offline extractive mode on the built-in sample corpus: every `[Sx]` marker maps to retrieved evidence, so `invalid_citations` is 0.*
 
 ## The part I actually care about
