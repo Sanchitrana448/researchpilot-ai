@@ -84,9 +84,13 @@ def run_research(index: Index, question: str, top_k: int = 6, rerank: bool | Non
     sub_questions = llm.decompose_question(question)
 
     # 3-4. Retrieval: gather + rank evidence per sub-question, then merge/dedupe
+    # Topic gate on the user's own question. Sub-questions add coverage but
+    # cannot make an unrelated question relevant: template wording such as
+    # "what evidence supports claims about ..." matches documents by itself.
+    on_topic = index.is_on_topic(question)
     seen_chunk_ids = set()
     evidence: List[dict] = []
-    for sq in sub_questions:
+    for sq in sub_questions if on_topic else []:
         for r in index.search(sq, top_k=top_k, rerank=rerank):
             if r["chunk_id"] in seen_chunk_ids:
                 continue
@@ -108,6 +112,8 @@ def run_research(index: Index, question: str, top_k: int = 6, rerank: bool | Non
     uncertainty_notes = []
     if not labeled_evidence:
         uncertainty_notes.append("No supporting evidence was retrieved for this question.")
+        if index.chunks and not on_topic:
+            uncertainty_notes.append("The question does not appear to relate to any indexed document.")
     elif len(labeled_evidence) < 2:
         uncertainty_notes.append("Only one evidence passage was found; confidence is low.")
     if contradictions:

@@ -1,5 +1,5 @@
 """Retrieval benchmark: 24 passages, 24 keyword queries, 24 paraphrase queries,
-6 off-topic queries.
+26 off-topic queries.
 
 Hand-written for this project, so treat it as a stress test of one property
 (does retrieval survive rewording?) rather than a general benchmark.
@@ -99,6 +99,28 @@ OFF_TOPIC_QUERIES = [
     "What is the capital of Australia?",
     "How long should I boil an egg?",
     "Which planets have rings?",
+    # Added after the live demo answered an off-topic question. Written before
+    # being scored, but their scores were seen when the topic gate was set.
+    "What time does the post office close on Saturdays?",
+    "How do I train a puppy to sit?",
+    "What are the symptoms of the common cold?",
+    "Who painted the Mona Lisa?",
+    "How many calories are in an apple?",
+    "What is the best way to learn guitar?",
+    "How do volcanoes form?",
+    "Where can I buy cheap flights to Spain?",
+    "How do I change a flat tyre?",
+    "What is the plot of Hamlet?",
+    "How tall is Mount Everest?",
+    "What should I pack for a beach holiday?",
+    "How do I make sourdough starter?",
+    "Why is the sky blue?",
+    "Which football club has won the most league titles?",
+    "How do I clean a cast iron pan?",
+    "What is the population of Canada?",
+    "How do bees make honey?",
+    "What is a good stretching routine before running?",
+    "How do I knit a scarf?",
 ]
 
 _STOP = {

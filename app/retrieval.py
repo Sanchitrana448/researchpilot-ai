@@ -10,9 +10,12 @@ Stage 2, optional re-ranking: a cross-encoder (app/reranker.py) reads the
 question together with each candidate and re-orders them. Off by default,
 because it did not improve results on the public benchmark.
 
-Refusal: candidates below MIN_SIMILARITY are dropped in stage 1, so an
-off-topic question retrieves nothing and the pipeline refuses to answer
-instead of citing the least-bad passage. The re-ranker is not used for this:
+Refusal: the user's question must first clear a topic gate (is_on_topic);
+the research pipeline checks it before searching any planner sub-question,
+because generic sub-question wording ("what evidence supports...") can
+match a corpus on its own. Within a search, candidates below MIN_SIMILARITY
+are dropped. An off-topic question therefore retrieves nothing and the
+pipeline refuses to answer instead of citing the least-bad passage. The re-ranker is not used for this:
 it scores reworded but correct matches almost as low as off-topic ones.
 
 Measured on the public BEIR SciFact benchmark in eval/beir_scifact.py.
@@ -37,6 +40,11 @@ CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "30"))
 # around 0.35-0.47 and genuine matches from about 0.55 up in
 # eval/benchmark_data.py, so 0.50 sits in the gap. Chosen on that small set.
 MIN_SIMILARITY = float(os.getenv("MIN_SIMILARITY", "0.50"))
+# Topic gate, applied to the user's own question before any sub-question is
+# searched: below this best-match similarity the question is treated as
+# unrelated to the indexed documents. On eval/benchmark_data.py real questions
+# score 0.57 or more and 26 off-topic questions 0.52 or less.
+TOPIC_GATE = float(os.getenv("TOPIC_GATE", "0.55"))
 # Keep only passages within this distance of the best match. Topically close
 # documents all clear the absolute floor, so without this a question about
 # one subtopic pulls in every document from the same field as "evidence".
@@ -169,6 +177,13 @@ class Index:
         new = self.chunks[first_new:]
         self._vectors.add(first_new, embeddings.embed_documents([c.text for c in new]))
         return doc
+
+    def is_on_topic(self, question: str) -> bool:
+        """True if the question's best match clears TOPIC_GATE."""
+        if not self.chunks:
+            return False
+        hits = self._vectors.search(embeddings.embed_queries([question])[0], 1, TOPIC_GATE)
+        return bool(hits)
 
     def search(self, query: str, top_k: int = 6, rerank: Optional[bool] = None) -> List[dict]:
         """Return the top_k chunks with similarity, re-rank score and final score."""

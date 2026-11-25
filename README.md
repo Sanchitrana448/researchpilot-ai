@@ -85,7 +85,7 @@ The bge-small score is close to the 0.713 published for the same model, and the 
 
 **Re-ranking was tested and is off by default.** A cross-encoder (ms-marco-MiniLM-L-6-v2) re-scoring the top 30 candidates did not beat vector search alone on SciFact, at about 140 times the latency and about 140 MB more memory. It is still available locally with `{"rerank": true}`; on Render's 512 MB free tier it is refused rather than risking an out-of-memory crash.
 
-**Refusing off-topic questions.** Passages below a cosine similarity of 0.50 are dropped, and so are passages more than 0.15 below the best match. An unrelated question therefore retrieves nothing and the pipeline says there is not enough evidence instead of citing the least-bad passage. On a hand-written check, all 6 off-topic questions were refused while all 24 keyword questions still found their passage first.
+**Refusing off-topic questions.** Before the planner's sub-questions are searched, the user's own question must clear a topic gate (best-match similarity 0.55). This check exists because of a bug found on the live demo: the offline planner's template sub-questions ("what evidence supports or contradicts claims about ...") matched the RAG sample documents by themselves, so a question about repotting an orchid came back with "evidence". Within a search, passages below 0.50 similarity or more than 0.15 below the best match are dropped. On the hand-written check, all 48 real questions are answered and all 26 off-topic questions are refused.
 
 Two more things that aren't obvious from the endpoint list:
 
@@ -99,7 +99,7 @@ Two more things that aren't obvious from the endpoint list:
 pytest tests/ -v
 ```
 
-Fourteen tests: chunk windowing and overlap, index add/search, duplicate deduplication, the full offline pipeline end to end, the zero-document case (which should return no evidence and refuse to answer, not hallucinate), the sample endpoint being idempotent, every eval question retrieving its expected source with zero invalid citations, the contradiction critic ignoring stopword-only overlap, vector search finding a reworded question that shares no words with its passage, off-topic questions retrieving nothing, the re-ranker adding its score, the API reporting the models and honouring the `rerank` flag, and re-ranking being refused where memory does not allow it.
+Fifteen tests: chunk windowing and overlap, index add/search, duplicate deduplication, the full offline pipeline end to end, the zero-document case (which should return no evidence and refuse to answer, not hallucinate), the sample endpoint being idempotent, every eval question retrieving its expected source with zero invalid citations, the contradiction critic ignoring stopword-only overlap, vector search finding a reworded question that shares no words with its passage, off-topic questions retrieving nothing, the re-ranker adding its score, the API reporting the models and honouring the `rerank` flag, re-ranking being refused where memory does not allow it, and off-topic questions returning no evidence through the full pipeline.
 
 ## Evaluation
 
@@ -115,7 +115,7 @@ python eval/run_eval.py       # pipeline eval + paraphrase check, writes RESULTS
 
 - Vector search can still miss a reworded question: on the hand-written paraphrase set, the right passage is ranked first about 6 times in 10 and in the top three about 9 times in 10.
 - The cross-encoder re-ranker (trained on web search queries) helped on neither SciFact nor the paraphrase set, and it scores reworded but correct matches almost as low as off-topic ones. A re-ranker trained on scientific text would be the next thing to try.
-- The similarity floor for refusing off-topic questions was chosen on a small hand-written set.
+- The topic gate and similarity floors were chosen on a small hand-written set (the gap between on-topic and off-topic scores there is narrow: 0.57 vs 0.52), so an unusual off-topic question can still slip through or a loosely worded real one be refused.
 - The contradiction detector is a negation heuristic: it looks for evidence pairs sharing 6+ terms where one contains a negation word and the other doesn't. It catches blunt "X causes Y" vs "X does not cause Y" pairs and nothing subtler. It's deliberately tuned to be quiet rather than thorough, since a noisy critic is worse than none.
 - The index is in-memory. Restart and the corpus is gone; Qdrant's server mode would fix that with a constructor change.
 - The contradiction critic once flagged pairs that only shared words like "a", "and" and "of"; the eval caught it and it now counts content words only.

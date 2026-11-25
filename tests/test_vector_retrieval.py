@@ -64,3 +64,17 @@ def test_rerank_request_is_refused_where_unavailable(monkeypatch):
         r = client.post("/research", json={"question": "How should a RAG system be evaluated?", "rerank": True})
         assert r.status_code == 400
         assert "memory" in r.json()["detail"]
+
+
+def test_off_topic_question_is_refused_end_to_end():
+    # Regression: offline sub-question templates ("what evidence supports
+    # claims about ...") used to match the RAG sample corpus on their own.
+    from app.agents import run_research
+    from app.sample_data import SAMPLE_DOCS
+
+    index = Index()
+    for d in SAMPLE_DOCS:
+        index.add_document(d["text"], d["source"])
+    for q in ("How do I repot an orchid?", "How long should I boil an egg?"):
+        result = run_research(index, q)
+        assert result.evidence == []

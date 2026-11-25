@@ -82,7 +82,7 @@ def main() -> None:
         "0.665 for Elasticsearch BM25. Our bge-small score (0.706) is close to the 0.713 reported for "
         "it on the MTEB leaderboard, which suggests the setup is sound.",
         "- The cross-encoder did not help on SciFact and is off by default in the app.",
-        "- The paraphrase set is small and hand-written, and the similarity floor was chosen on it.",
+        "- The paraphrase set is small and hand-written, and the topic gate and similarity floors were chosen on it.",
         "",
     ]
     (ROOT / "RESULTS.md").write_text("\n".join(out))
